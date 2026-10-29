@@ -1,0 +1,2 @@
+/* Temporary inspection of the real application, removed after screenshots. */
+(async()=>{await document.fonts.ready;document.getElementById('prime-enabled').click();document.getElementById('prime-brief').value='Me imagino una pieza de city pop nocturna. Quiero un Rhodes relajado y un bajo que converse con la batería; la melodía tiene que sentirse nostálgica sin quedarse triste todo el tiempo. Al volver el tema, quiero sentir esperanza.';document.body.dataset.primeVisual='ready';})();

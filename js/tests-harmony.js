@@ -1,0 +1,38 @@
+'use strict';
+window.runHarmonyTests=async({test,assert,equal,rejects,win,doc,by,click,get})=>{
+  const H=win.HarmonyPlanner,input=el=>el.dispatchEvent(new win.Event('input',{bubbles:true})),set=(id,v)=>{by(id).value=v;input(by(id));};
+  const before=JSON.stringify(get()),defaults={root:0,scale:'',bpm:'',note:'',changes:[]};
+  const rows=()=>[...by('modal-plan').querySelectorAll('[data-modal-step]')];
+  const field=(i,k,v)=>{const el=rows()[i].querySelector(`[data-field="${k}"]`);el.value=v;input(el);};
+  test('Armonía: 40 escalas, 12 tónicas y catálogo sin IDs duplicados',()=>{assert(H.scales.length===40&&H.roots.length===12);assert(new Set(H.scales.map(s=>s.id)).size===40);assert(by('composition-scale').options.length===41);});
+  test('Armonía: intervalos válidos, ordenados y sin duplicados',()=>{for(const s of H.scales){assert(s.intervals[0]===0&&new Set(s.intervals).size===s.intervals.length,s.name);assert(s.intervals.every((v,i)=>Number.isInteger(v)&&v>=0&&v<12&&(i===0||v>s.intervals[i-1])),s.name);}});
+  test('Armonía: Re dórico, Fa sostenido lidio y alterada correctos',()=>{equal(H.pitches(2,'dorian'),[2,4,5,7,9,11,0]);equal(H.pitches(6,'lydian'),[6,8,10,0,1,3,5]);equal(H.scales.find(s=>s.id==='altered').intervals,[0,1,3,4,6,8,10]);});
+  test('Armonía: configuración vacía no impone escala ni tempo',()=>equal(H.instructions({harmony:defaults}),''));
+  test('Armonía: recomendaciones lidias explican la cuarta aumentada',()=>{const r=H.recommendations({root:0,scale:'ionian'},'bright').find(x=>x.scale==='lydian');assert(r);equal(r.added,[6]);equal(r.removed,[5]);assert(r.common.length===6);});
+  test('Armonía: otro centro conserva las alturas sin fingir la misma tónica',()=>{const a=H.recommendations({root:0,scale:'ionian'},'relative');assert(a.length>0);assert(a.every(r=>r.root!==0&&r.added.length===0&&r.removed.length===0));});
+  test('Armonía: filtros no proponen el mismo destino y las pentatónicas no falsean brillo',()=>{for(const kind of ['close','bright','dark','tension','relative'])assert(H.recommendations({root:2,scale:'dorian'},kind).every(r=>r.root!==2||r.scale!=='dorian'));equal(H.recommendations({root:0,scale:'major-pent'},'bright'),[]);});
+  test('Armonía: validación bloquea BPM inválidos y escalas desconocidas',()=>{for(const bpm of ['0','19','301','NaN','Infinity','texto'])rejects(()=>H.validate({...defaults,bpm}));for(const bpm of ['20','300','112.5',''])H.validate({...defaults,bpm});rejects(()=>H.validate({...defaults,scale:'inventada'}));rejects(()=>H.validate({...defaults,root:12}));});
+  test('Armonía: elegir escala y BPM no altera notas, etiquetas ni tempo de referencia',()=>{set('composition-scale','dorian');set('composition-root','2');set('composition-bpm','96.5');assert(by('scale-notes').textContent.includes('B'));assert(JSON.stringify(get())===before);});
+  test('Armonía: prompt exige escala inicial y sincroniza bpm con tempos',()=>{const s=win.NEACreative.getBrief().text;assert(s.includes('Re · D — Dórico')&&s.includes('BPM inicial obligatorio: 96.5')&&s.includes('0/96.5'));assert(s.includes('no basta con cambiar la etiqueta key'));});
+  test('Armonía: recomendaciones son optativas y añaden eventos de intención, no notas',()=>{assert(rows().length===0);by('modal-explorer').open=true;by('modal-recommendations').querySelector('button').click();assert(rows().length===1);assert(JSON.stringify(get())===before);});
+  test('Armonía: destino libre, ubicación, transición y BPM por cambio',()=>{set('modal-target-root','7');set('modal-target-scale','mixolydian');click('modal-add');field(1,'where','Pulso 32 · puente');field(1,'transition','pivot');field(1,'bpm','124');field(1,'note','Dejar una nota común en la flauta.');const s=win.NEACreative.getBrief().text;assert(s.includes('Pulso 32 · puente → Sol · G — Mixolidio')&&s.includes('BPM desde este cambio: 124')&&s.includes('Dejar una nota común en la flauta.'));});
+  test('Armonía: reordenar cambia el orden del encargo',()=>{rows()[1].querySelector('[data-modal-up]').click();assert(H.options().harmony.changes[0].scale==='mixolydian');rows()[0].querySelector('[data-modal-down]').click();assert(H.options().harmony.changes[1].scale==='mixolydian');});
+  test('Armonía: regreso sigue la nueva escala inicial al editarla',()=>{click('modal-return');set('composition-scale','aeolian');const last=H.options().harmony.changes.at(-1);assert(last.scale==='aeolian'&&last.root===2&&last.transition==='return');assert(by('modal-origin').textContent.includes('Menor natural'));});
+  test('Armonía: regreso incoherente se bloquea en vez de contradecir el prompt',()=>{field(rows().length-1,'root','3');rejects(()=>win.NEACreative.getBrief(),/regreso/);field(rows().length-1,'root','2');});
+  test('Armonía: indicaciones largas y HTML permanecen como texto',()=>{const text='<img src=x onerror=alert(1)> '+('Conserva el motivo. '.repeat(100))+'FIN';set('modal-intent',text);field(0,'note',text);rows()[0].querySelector('[data-modal-down]').click();assert(!by('harmony-planner').querySelector('img'));assert(win.NEACreative.getBrief().text.includes(text));set('modal-intent','');});
+  set('composition-bpm','301');await new Promise(r=>setTimeout(r,350));
+  test('Armonía: BPM inválido bloquea preparar prompt y muestra error',()=>{assert(by('build-prompt').disabled);assert(by('harmony-status').textContent.includes('20 y 300'));});
+  set('composition-bpm','108');await new Promise(r=>setTimeout(r,350));
+  test('Armonía: corregir BPM rehabilita el prompt',()=>assert(!by('build-prompt').disabled));
+  test('Armonía: sin referencia también se envía el mapa tonal elegido',()=>{const old=by('include-context').checked;by('include-context').checked=false;const s=win.NEACreative.getBrief().text;assert(s.includes('BPM inicial obligatorio: 108')&&s.includes('Escala inicial elegida: Re'));assert(!s.includes('--- INICIO PIEZA NEA COMPLETA ---'));by('include-context').checked=old;});
+  test('Armonía: plan conserva todos sus campos tras serializar preferencias',()=>{const h=H.options().harmony;equal(H.validate(JSON.parse(JSON.stringify(h))),h);});
+  test('Armonía: borrar pasos elimina sus instrucciones',()=>{while(rows().length)rows()[0].querySelector('[data-modal-remove]').click();assert(!win.NEACreative.getBrief().text.includes('CAMBIOS EN ESTE ORDEN'));});
+  test('Armonía: permite encadenar más de doce cambios sin recortarlos',()=>{for(let i=0;i<14;i++)click('modal-add');assert(H.options().harmony.changes.length===14);assert(win.NEACreative.getBrief().text.includes('14. Lugar a elección'));while(rows().length)rows()[0].querySelector('[data-modal-remove]').click();});
+  test('Armonía: toda la sesión mantiene intacta la referencia',()=>assert(JSON.stringify(get())===before));
+  // Measure the real expanded controls at phone width, not a cloned mockup.
+  const frame=document.getElementById('studio-test-frame'),oldWidth=frame.style.width;
+  frame.style.width='390px';click('modal-add');await new Promise(r=>setTimeout(r,120));
+  test('Armonía: recomendaciones y pasos expandidos caben en 390 px',()=>{const panel=by('harmony-planner').getBoundingClientRect();for(const el of by('harmony-planner').querySelectorAll('input,select,textarea,.modal-suggestion,.modal-step')){const r=el.getBoundingClientRect();assert(r.left>=panel.left-1&&r.right<=panel.right+1,el.id||el.className);}assert(doc.documentElement.scrollWidth<=win.innerWidth+1);});
+  while(rows().length)rows()[0].querySelector('[data-modal-remove]').click();frame.style.width=oldWidth;
+  set('composition-bpm','');set('composition-scale','');set('composition-root','0');set('modal-intent','');by('modal-explorer').open=false;
+};
